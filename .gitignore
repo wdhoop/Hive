@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 环境与密钥（仓库内绝不提交真实凭据）
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*_key*.json
+*_rpc*.json
+*_backup*.json
+
+# 运行产物
+*.log
+data/
+storage/
+temp/
+logs/
+*.db
+*.db-journal
+
+# 备份 / 临时
+*.bak
+*.bak_*
+*.out
+*.err
+t.out
+
+# 系统
+.DS_Store
+Thumbs.db
