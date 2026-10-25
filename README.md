@@ -59,6 +59,19 @@ curl http://127.0.0.1:8764/health
 
 ## 使用示例
 
+可运行的完整示例集见 [examples/](examples/README.md)——五组最小示例（每个单文件、纯标准库），分别演示五层协议：五步接入、PULL 长轮询、命名空间隔离、乐观锁、抗体自愈。
+
+```bash
+python examples/hello-agent/main.py        # 五步接入（echo agent）
+python examples/two-agents/main.py         # 中央信箱 PULL 互发
+python examples/memory-namespace/main.py   # 命名空间隔离 + ACL 拒绝
+python examples/optimistic-lock/main.py    # 并发写冲突 + 快照重试
+python examples/antibody/main.py           # 失败自愈 + A/B replay
+python scripts/_verify_examples.py         # 一键验证全部示例与契约
+```
+
+一条消息的五层完整流转（构造 trace）见 [docs/TRACE.md](docs/TRACE.md)。
+
 ### 智能体接入（SDK）
 
 ```python
@@ -148,9 +161,10 @@ hive/
 ├── security/                  # 安全层
 ├── self_heal/                 # 自愈层
 ├── sdk/                       # 智能体接入 SDK
-├── docs/                      # 架构文档 + API 契约
+├── examples/                  # 五组最小接入示例（可删除、可替换）
+├── docs/                      # 架构文档 + API 契约 + 五层 trace
 ├── scripts/                   # 运维脚本
-└── tests/                     # 骨架自检
+└── tests/                     # 骨架自检 + 契约测试
 ```
 
 ## 配置
@@ -171,6 +185,7 @@ hive/
 
 - [架构设计](docs/ARCHITECTURE.md) — 模块职责、消息协议、关键设计决策
 - [API 契约](docs/API.md) — 全部端点分组与认证语义
+- [五层流转 trace](docs/TRACE.md) — 一条消息在五层中的完整流转（构造示例）
 
 ## 开发状态与路线图
 
@@ -179,6 +194,8 @@ hive/
 - [x] 架构设计定稿（五层 + 消息协议 + 安全模型）
 - [x] 公共数据契约（`communication/models.py`）
 - [x] 服务装配骨架（启动 + 健康检查 + 路由分组）
+- [x] 最小示例集（examples/ 五组：五步接入 / PULL / 命名空间 / 乐观锁 / 自愈）
+- [x] 契约测试（tests/test_examples.py）+ 一键验证脚本
 - [ ] 通信层实现（总线 / 信箱 / 任务分发）
 - [ ] 记忆网关实现
 - [ ] 安全层实现
