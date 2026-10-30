@@ -8,14 +8,19 @@ AuthMiddleware 拦截全部请求：
 - RateLimiter 按 agent_id 做滑动窗口限流，防滥用。
 
 骨架版复刻完整接口；方法体为占位。
+注意：主系统认证在生产版实现；本骨架仅**完整实现**广场隔离中间件
+（PlazaIsolationMiddleware），因为广场是独立子模块、开箱即用。
 """
 
 from __future__ import annotations
 
+import os
 import time
+from types import SimpleNamespace
 from typing import Callable, List, Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from .models import AgentIdentity
 
@@ -73,3 +78,84 @@ class RateLimiter:
     def reset(self, agent_id: str) -> None:
         """重置计数。"""
         raise NotImplementedError
+
+
+# ══════════════════════════════════════════════════════════════════
+# 智能体广场隔离中间件（独立子模块，完整实现）
+# ══════════════════════════════════════════════════════════════════
+#
+# 广场是 Hive 的一个**独立子模块**：
+#   - 独立数据库 data/plaza.db（SQLite WAL），与主系统完全分离；
+#   - 独立钥匙体系 X-Plaza-Key（plaza/keys.py，库中仅存 sha256 哈希）；
+#   - 路由级隔离：两套钥匙互不通用。
+#
+# 隔离规则（/api/v1/plaza/*）：
+#   1. 公开端点（GET 浏览类 + POST /register）→ 免钥匙放行；
+#   2. /admin/* 管理端点 → 主 X-API-Key，且必须等于 HIVE_MASTER_KEY；
+#   3. 其余广场端点 → 校验 X-Plaza-Key 并注入 request.state.plaza_agent。
+# 非广场路径原样放行（由主系统处理，骨架版保持 501 占位）。
+
+PLAZA_PREFIX = "/api/v1/plaza"
+PLAZA_KEY_HEADER = "X-Plaza-Key"
+MAIN_KEY_HEADER = "X-API-Key"
+
+
+def _is_plaza_public(method: str, rest_path: str) -> bool:
+    """广场公开端点（无需任何钥匙）：浏览类 + 注册。"""
+    if method == "GET":
+        if rest_path in ("", "/health", "/guide", "/boards", "/announcements"):
+            return True
+        if rest_path == "/threads" or rest_path.startswith("/threads/"):
+            return True
+    if method == "POST" and rest_path == "/register":
+        return True
+    return False
+
+
+class PlazaIsolationMiddleware(BaseHTTPMiddleware):
+    """广场隔离中间件（完整实现，开箱即用）。"""
+
+    def __init__(self, app, master_key: Optional[str] = None) -> None:
+        super().__init__(app)
+        self._master_key = master_key or os.getenv(
+            "HIVE_MASTER_KEY", "replace-with-strong-master-key"
+        )
+
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if path != PLAZA_PREFIX and not path.startswith(PLAZA_PREFIX + "/"):
+            # 非广场路径：放行（主系统由生产版中间件处理；骨架版保持 501）
+            return await call_next(request)
+
+        rest = path[len(PLAZA_PREFIX):]
+        method = request.method.upper()
+
+        # 管理台：主 X-API-Key == HIVE_MASTER_KEY
+        if rest == "/admin" or rest.startswith("/admin/"):
+            raw = request.headers.get(MAIN_KEY_HEADER)
+            if not raw or raw != self._master_key:
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "缺少或无效的管理员钥匙", "detail": "管理台需要 HIVE_MASTER_KEY"},
+                )
+            request.state.agent = SimpleNamespace(agent_id="admin", permissions=["admin"])
+            return await call_next(request)
+
+        # 公开端点放行
+        if _is_plaza_public(method, rest):
+            return await call_next(request)
+
+        # 广场钥匙校验（独立钥匙表，不触主系统）
+        plaza_key = request.headers.get(PLAZA_KEY_HEADER)
+        try:
+            from plaza.keys import verify_key as verify_plaza_key
+        except Exception:  # pragma: no cover
+            verify_plaza_key = None
+        agent = verify_plaza_key(plaza_key) if (plaza_key and verify_plaza_key) else None
+        if not agent:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "缺少或无效的 X-Plaza-Key", "detail": "请先注册广场获取专属钥匙"},
+            )
+        request.state.plaza_agent = agent
+        return await call_next(request)
